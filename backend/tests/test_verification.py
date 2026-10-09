@@ -507,3 +507,106 @@ def test_cross_document_mismatch_and_normalization():
     assert sg_mismatches[0].values["sale_deed_final.pdf"] == "124/3A"
     assert sg_mismatches[0].values["index2.pdf"] == "124/8"
 
+
+def test_id_document_heading_not_extracted_as_person_name():
+    text = "IDENTITY VERIFICATION TEST DOCUMENT\nFICTIONAL IDENTITY PROOF\nIDENTITY DETAILS\nAddress: Flat 704, Lakeview Residency\nIssue Date: 01/01/2024"
+    data = extract_structured_data_heuristic(text, "ID Document")
+    assert data.owner_name is None
+    assert data.personal_address == "Flat 704, Lakeview Residency"
+    assert data.date_of_issue == "01/01/2024"
+
+
+def test_valid_owner_name_matches_across_property_documents():
+    v = compare_documents([
+        _result("sale.pdf", "Sale Deed", owner_name="Mrs. SHILPA SALGIA"),
+        _result("card.pdf", "Property Card", owner_name="Shilpa Salgia"),
+        _result("712.pdf", "7/12 Extract", owner_name="SHILPA SALGIA"),
+    ], required_documents=[])
+    matches = [m for m in v.matches if m.field == "owner_name"]
+    assert len(matches) == 1
+    assert not any(m.field == "owner_name" for m in v.mismatches)
+
+
+def test_equivalent_names_with_honorifics_and_formatting_match():
+    v = compare_documents([
+        _result("doc1.pdf", "Sale Deed", owner_name="Mrs. SHILPA SALGIA"),
+        _result("doc2.pdf", "Property Card", owner_name="Smt. Shilpa Salgia"),
+    ], required_documents=[])
+    matches = [m for m in v.matches if m.field == "owner_name"]
+    assert len(matches) == 1
+    assert not any(m.field == "owner_name" for m in v.mismatches)
+
+
+def test_genuine_name_mismatch_detected():
+    v = compare_documents([
+        _result("doc1.pdf", "Sale Deed", owner_name="SHILPA SALGIA"),
+        _result("doc2.pdf", "Property Card", owner_name="VIKRAM DESHMUKH"),
+    ], required_documents=[])
+    mismatches = [m for m in v.mismatches if m.field == "owner_name"]
+    assert len(mismatches) == 1
+    assert mismatches[0].severity == "HIGH"
+
+
+def test_buyer_seller_mapping_in_sale_deed_and_index_ii():
+    v = compare_documents([
+        _result("sale.pdf", "Sale Deed", seller_name="Vikram Deshmukh", buyer_name="Mrs. SHILPA SALGIA"),
+        _result("index.pdf", "Index II", seller_name="Shri Vikram Deshmukh", buyer_name="Shilpa Salgia"),
+    ], required_documents=[])
+    match_fields = [m.field for m in v.matches]
+    assert "seller_name" in match_fields
+    assert "buyer_name" in match_fields
+    assert not any(m.field in {"seller_name", "buyer_name"} for m in v.mismatches)
+
+
+def test_survey_gat_number_extraction_when_present():
+    data = extract_structured_data_heuristic("Property Identification\nSurvey / Gat Number: 215/7A\nArea: 1450 sq ft", "Sale Deed")
+    assert data.survey_gat_number == "215/7A"
+    assert data.property_area == "1450 sq ft"
+
+
+def test_registration_number_extraction_when_present():
+    data = extract_structured_data_heuristic("Registration Details\nRegistration No.: MUM/REG/2026/04821\nDate: 12 September 2026", "Index II")
+    assert data.registration_number == "MUM/REG/2026/04821"
+    assert data.document_date == "12 September 2026"
+
+
+def test_document_date_extraction_when_present():
+    data = extract_structured_data_heuristic("THIS DEED OF SALE made on 12 September 2026 at Mumbai", "Sale Deed")
+    assert data.document_date == "12 September 2026"
+
+
+def test_missing_fields_reported_as_missing_not_mismatch():
+    v = compare_documents([
+        _result("sale.pdf", "Sale Deed", registration_number="MUM/REG/2026/04821"),
+        _result("card.pdf", "Property Card", registration_number=None),
+    ], required_documents=[])
+    assert not any(m.field == "registration_number" for m in v.mismatches)
+    assert len([m for m in v.matches if m.field == "registration_number"]) == 1
+
+
+def test_genuine_mismatches_still_detected():
+    v = compare_documents([
+        _result("sale.pdf", "Sale Deed", survey_gat_number="124/3A"),
+        _result("index.pdf", "Index II", survey_gat_number="124/8"),
+    ], required_documents=[])
+    mismatches = [m for m in v.mismatches if m.field == "survey_gat_number"]
+    assert len(mismatches) == 1
+    assert mismatches[0].values["sale.pdf"] == "124/3A"
+    assert mismatches[0].values["index.pdf"] == "124/8"
+
+
+def test_id_issue_dates_not_compared_as_property_document_dates():
+    data = extract_structured_data_heuristic("IDENTITY DETAILS\nFull Name: Aarav Mehta\nIssue Date: 01 January 2024", "ID Document")
+    assert data.date_of_issue == "01 January 2024"
+    assert data.document_date is None
+
+
+def test_existing_api_compatibility():
+    v = compare_documents([
+        _result("sale.pdf", "Sale Deed", owner_name="Shilpa Salgia", survey_gat_number="124/3A"),
+        _result("card.pdf", "Property Card", owner_name="Shilpa Salgia", survey_gat_number="124/3A"),
+    ], required_documents=["Sale Deed", "Property Card"])
+    assert v.overall_status == OverallStatus.VERIFIED.value
+    assert len(v.matches) >= 2
+
+

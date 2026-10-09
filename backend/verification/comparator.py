@@ -16,13 +16,14 @@ from backend.verification.rules import (
     DOCUMENT_APPLICABLE_FIELDS,
     FIELD_SEVERITY,
     FIELD_LABELS,
-    normalize_field_value
+    normalize_field_value,
+    is_invalid_person_name,
 )
 
 
 FIELD_LABEL_VALUES = {
     "survey_gat_number": {"survey gat number", "survey number", "gat number"},
-    "owner_name": {"owner", "owner name", "registered owner", "recorded owner", "property owner", "holder", "holder name", "registered holder", "registered owner holder", "owner holder", "holder owner", "name of owner", "name of holder"},
+    "owner_name": {"owner", "owner name", "registered owner", "recorded owner", "property owner", "holder", "holder name", "registered holder", "registered owner holder", "owner holder", "holder owner", "name of owner", "name of holder", "identity verification test document", "identity proof", "fictional identity document"},
     "seller_name": {"seller", "seller name", "vendor", "vendor name", "transferor", "transferor name", "first party", "seller vendor", "transferor seller"},
     "buyer_name": {"buyer", "buyer name", "purchaser", "purchaser name", "transferee", "transferee name", "second party", "buyer purchaser", "transferee buyer"},
     "property_address": {"address", "property address", "full address", "personal address", "location"},
@@ -34,7 +35,11 @@ FIELD_LABEL_VALUES = {
 
 def _is_field_label_value(field: str, value: str) -> bool:
     normalized = re.sub(r"[^a-z0-9]+", " ", value.lower()).strip()
-    return normalized in FIELD_LABEL_VALUES.get(field, set())
+    if normalized in FIELD_LABEL_VALUES.get(field, set()):
+        return True
+    if field in {"owner_name", "seller_name", "buyer_name"} and is_invalid_person_name(value):
+        return True
+    return False
 
 
 def compare_documents(

@@ -5,6 +5,7 @@ from typing import Any, Optional, Tuple
 import httpx
 from backend.config import settings
 from backend.models.document import ExtractedDocumentData
+from backend.verification.rules import is_invalid_person_name
 
 logger = logging.getLogger("propverify.ai")
 logger.setLevel(logging.INFO)
@@ -71,7 +72,10 @@ def normalize_ai_output_dict(data_dict: dict) -> dict:
         if not standard_key:
             s1 = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', key)
             standard_key = re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1).lower()
-        
+
+        if standard_key in {'owner_name', 'seller_name', 'buyer_name'} and val and is_invalid_person_name(str(val)):
+            val = None
+
         normalized[standard_key] = val
 
     return normalized
@@ -512,7 +516,7 @@ def extract_structured_data_heuristic(text: str, document_type: str) -> Extracte
                         candidate = ""
                 elif field in {"owner_name", "seller_name", "buyer_name"}:
                     candidate = candidate.strip(" /,;:-")
-                    if re.fullmatch(r"(?:registered\s+)?(?:owner|holder|seller|vendor|buyer|purchaser|transferor|transferee)(?:\s+name)?", candidate, re.I):
+                    if is_invalid_person_name(candidate):
                         candidate = ""
                 else:
                     if field == "property_area":
@@ -533,6 +537,7 @@ def extract_structured_data_heuristic(text: str, document_type: str) -> Extracte
         data.registration_number = data.document_number
 
     if document_type == "ID Document":
+        data.document_date = None
         issue_date_labels = [r"date\s+of\s+issue", r"issue\s+date", r"date\s+issued"]
         issue_date_pattern = re.compile(rf"(?im)^\s*(?:{'|'.join(issue_date_labels)})\s*(?::|：|=|[-–—→])?\s*(.*?)\s*$")
         for match in issue_date_pattern.finditer(text):

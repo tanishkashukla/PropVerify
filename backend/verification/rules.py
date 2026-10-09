@@ -61,6 +61,59 @@ FIELD_SEVERITY: Dict[str, str] = {
 }
 
 
+INVALID_PERSON_NAME_PATTERNS = {
+    "identity verification test document", "identity proof", "fictional identity document",
+    "property card", "sale deed", "index ii", "7/12 extract", "land record",
+    "identity details", "property identification", "registration particulars",
+    "holder / occupant details", "holder occupant details", "boundary details",
+    "remarks", "security notice", "verification details", "property description",
+    "record notes", "consideration and transfer", "identification", "particulars",
+    "details", "full name", "name of holder", "name of owner", "registered owner",
+    "owner / purchaser", "seller / vendor", "transferor / seller", "transferee / purchaser",
+    "name for matching", "address for matching", "holder", "owner", "seller", "buyer",
+    "vendor", "purchaser", "transferor", "transferee"
+}
+
+
+def is_invalid_person_name(name: str) -> bool:
+    """
+    Returns True if the input string is a document title, heading, field label, or invalid phrase
+    rather than a valid person name.
+    """
+    if not name or not isinstance(name, str):
+        return True
+    clean = re.sub(r"\s+", " ", name.strip().lower())
+    if clean in INVALID_PERSON_NAME_PATTERNS:
+        return True
+    if any(term in clean for term in [
+        "verification test", "fictional identity", "test document", "synthetic test",
+        "identity proof", "property card", "sale deed", "index ii", "7/12 extract",
+        "land record", "test data", "fictional document", "synthetic record"
+    ]):
+        return True
+    if not re.search(r"[a-zA-Z]", name):
+        return True
+    if len(name) > 70:
+        return True
+    return False
+
+
+def normalize_person_name(val: str) -> str:
+    """
+    Normalizes a person's name for comparison.
+    Strips common honorifics (Mr., Mrs., Ms., Shri, Smt., Dr., etc.), collapses whitespace,
+    and removes punctuation while preserving actual name tokens.
+    """
+    if not val or is_invalid_person_name(val):
+        return ""
+    norm = val.strip().lower()
+    # Strip honorifics from start of name
+    norm = re.sub(r"^(?:mr|mrs|ms|miss|shri|shree|smt|dr|prof)\.?\s+", "", norm, flags=re.IGNORECASE)
+    norm = re.sub(r"[^\w\s]", " ", norm)
+    norm = re.sub(r"\s+", " ", norm).strip()
+    return norm
+
+
 def normalize_text(text: str) -> str:
     """
     Normalizes a string for deterministic comparison.
@@ -147,7 +200,9 @@ def normalize_field_value(field_name: str, value: str) -> str:
     """
     if not value:
         return ""
-    if field_name == "survey_gat_number":
+    if field_name in {"owner_name", "seller_name", "buyer_name"}:
+        return normalize_person_name(value)
+    elif field_name == "survey_gat_number":
         return normalize_survey_gat(value)
     elif field_name == "property_area":
         return normalize_area(value)
