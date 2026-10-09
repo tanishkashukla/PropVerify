@@ -45,12 +45,22 @@ def file_to_images(file_input: Union[str, bytes], filename: str = "") -> List[Im
 
 @lru_cache(maxsize=1)
 def _easyocr_reader():
+    """
+    Lazy initialization of EasyOCR reader.
+    Deferred until OCR is explicitly required for a scanned document.
+    Cached after first load so subsequent calls reuse the instance.
+    Never executes at module import or FastAPI server startup.
+    """
     import easyocr
-    # EasyOCR downloads only its English model weights on first scanned upload.
-    # A caller can disable that fetch for offline environments with
-    # EASYOCR_DOWNLOAD_MODELS=false; the OCRProcessingError remains actionable.
     download_enabled = os.getenv("EASYOCR_DOWNLOAD_MODELS", "true").strip().lower() not in {"0", "false", "no"}
     return easyocr.Reader(["en"], gpu=False, download_enabled=download_enabled, verbose=False)
+
+
+def is_easyocr_loaded() -> bool:
+    """Returns True if the EasyOCR reader model has been initialized in memory."""
+    info = _easyocr_reader.cache_info()
+    return info.currsize > 0
+
 
 
 def perform_ocr(file_input: Union[str, bytes], filename: str = "") -> str:

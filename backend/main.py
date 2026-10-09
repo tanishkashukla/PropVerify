@@ -1,6 +1,9 @@
 
 import json
 import logging
+import os
+import sys
+from contextlib import asynccontextmanager
 from typing import List, Optional
 
 from fastapi import FastAPI, File, Form, HTTPException, Response, UploadFile
@@ -24,12 +27,32 @@ from backend.verification.result import (
     VerificationResult,
 )
 
+# Configure logging to unbuffered stdout so application logs flush immediately in cloud platforms (Render).
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)],
+)
+
 logger = logging.getLogger("propverify.api")
 
 SUPPORTED_DOCUMENT_TYPES = {
     item.value for item in DocumentType if item != DocumentType.UNKNOWN
 }
 SUPPORTED_EXTENSIONS = {".pdf", ".jpg", ".jpeg", ".png"}
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    port = os.getenv("PORT", "8001")
+    logger.info(
+        "[PropVerify] Server starting up. Listening for requests on PORT=%s (Gemini configured=%s)...",
+        port,
+        bool(settings.GEMINI_API_KEY),
+    )
+    yield
+    logger.info("[PropVerify] Server shutting down.")
+
 
 app = FastAPI(
     title="PropVerify Document Processing & Verification API",
@@ -38,20 +61,34 @@ app = FastAPI(
         "and PDF report generation."
     ),
     version="3.1.0",
+    lifespan=lifespan,
 )
 
-# Allow the deployed Vercel frontend and local development frontends.
+# Allow the deployed Vercel frontend, preview frontends, and local development frontends.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "https://prop-verify.vercel.app",
         "http://localhost:3000",
         "http://127.0.0.1:3000",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
     ],
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=False,
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization"],
 )
+
+
+@app.get("/")
+def root_check():
+    return {
+        "status": "healthy",
+        "service": "PropVerify Document Processing & Verification API",
+        "health_check": "/api/health",
+        "version": "3.1.0",
+    }
 
 
 @app.get("/api/health")
@@ -62,7 +99,9 @@ def health_check():
         "service": "PropVerify Verification Engine",
         "gemini_configured": bool(settings.GEMINI_API_KEY),
         "gemini_model": settings.GEMINI_MODEL,
+        "key_source": settings.KEY_SOURCE,
     }
+
 
 
 async def _read_upload(file: UploadFile) -> bytes:
@@ -423,3 +462,10 @@ async def generate_verification_report(result: VerificationResult):
                 "Check the server logs for details."
             ),
         ) from None
+
+
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.getenv("PORT", "8001"))
+    uvicorn.run("backend.main:app", host="0.0.0.0", port=port, reload=True)
+

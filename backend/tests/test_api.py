@@ -22,12 +22,29 @@ def avoid_external_ai_requests(monkeypatch):
     monkeypatch.setattr(settings, "GROQ_API_KEY", "")
 
 
+def test_root_endpoint():
+    response = client.get("/")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "healthy"
+    assert data["health_check"] == "/api/health"
+
+
 def test_health_endpoint():
     response = client.get("/api/health")
     assert response.status_code == 200
     health = response.json()
     assert health["status"] == "healthy"
     assert isinstance(health["gemini_configured"], bool)
+    assert "key_source" in health
+
+
+def test_ocr_not_loaded_on_app_startup():
+    from backend.document_processing.ocr import is_easyocr_loaded
+    # OCR initialization must remain deferred until a scanned image upload occurs.
+    # At app startup, the EasyOCR model cache must not be pre-loaded in memory.
+    assert is_easyocr_loaded() is False
+
 
 
 def test_process_document_api():
