@@ -18,6 +18,7 @@ from backend.verification.rules import (
     FIELD_LABELS,
     normalize_field_value,
     is_invalid_person_name,
+    sanitize_person_name_string,
 )
 
 
@@ -111,12 +112,18 @@ def compare_documents(
 
             if field in applicable:
                 val = getattr(res.extracted_data, field, None)
-                if val is not None and str(val).strip() != "" and not _is_field_label_value(field, str(val)):
-                    normalized = normalize_field_value(field, str(val))
-                    if normalized:
-                        raw_values[res.file_name] = str(val).strip()
-                        normalized_values[res.file_name] = normalized
-                        doc_type_map[res.file_name] = doc_type
+                if val is not None and str(val).strip() != "":
+                    clean_val = str(val).strip()
+                    if field in {"owner_name", "seller_name", "buyer_name"}:
+                        clean_val = sanitize_person_name_string(clean_val)
+                    if clean_val and not _is_field_label_value(field, clean_val):
+                        normalized = normalize_field_value(field, clean_val)
+                        if normalized:
+                            raw_values[res.file_name] = clean_val
+                            normalized_values[res.file_name] = normalized
+                            doc_type_map[res.file_name] = doc_type
+                        else:
+                            docs_missing_this_field.append((doc_type, res.file_name))
                     else:
                         docs_missing_this_field.append((doc_type, res.file_name))
                 else:

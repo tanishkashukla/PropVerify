@@ -61,17 +61,29 @@ FIELD_SEVERITY: Dict[str, str] = {
 }
 
 
-INVALID_PERSON_NAME_PATTERNS = {
-    "identity verification test document", "identity proof", "fictional identity document",
-    "property card", "sale deed", "index ii", "7/12 extract", "land record",
-    "identity details", "property identification", "registration particulars",
-    "holder / occupant details", "holder occupant details", "boundary details",
-    "remarks", "security notice", "verification details", "property description",
-    "record notes", "consideration and transfer", "identification", "particulars",
-    "details", "full name", "name of holder", "name of owner", "registered owner",
-    "owner / purchaser", "seller / vendor", "transferor / seller", "transferee / purchaser",
-    "name for matching", "address for matching", "holder", "owner", "seller", "buyer",
-    "vendor", "purchaser", "transferor", "transferee"
+LABEL_PREFIX_PATTERN = r"^(?:reference|ref|name|full\s+name|matching\s+name|name\s+for\s+matching|owner\s+name|buyer\s+name|seller\s+name|transferee|transferor|purchaser|vendor|holder|holder\s+name|registered\s+owner|recorded\s+holder|applicant|cardholder)\s*[:=:-]\s*"
+HONORIFIC_PATTERN = r"^(?:mr|mrs|ms|miss|shri|shree|smt|dr|prof|er)\.?\s+"
+
+
+def sanitize_person_name_string(val: str) -> str:
+    """
+    Strips leading label prefixes (such as 'Reference:', 'Full Name:', 'Name:') from a person name string.
+    """
+    if not val or not isinstance(val, str):
+        return ""
+    name = val.strip()
+    name = re.sub(LABEL_PREFIX_PATTERN, "", name, flags=re.IGNORECASE).strip()
+    return name
+
+
+INVALID_PERSON_NAME_PATTERNS: Set[str] = {
+    "owner name", "seller name", "buyer name", "property address",
+    "survey / gat number", "survey gat number", "property area",
+    "registration number", "document date", "document number",
+    "property document set", "secure check", "verification test",
+    "index ii", "property card", "sale deed", "7/12 extract", "id document",
+    "reference", "full name", "matching name", "name", "holder name", "holder",
+    "transferee", "transferor", "purchaser", "vendor", "registered owner"
 }
 
 
@@ -82,7 +94,8 @@ def is_invalid_person_name(name: str) -> bool:
     """
     if not name or not isinstance(name, str):
         return True
-    clean = re.sub(r"\s+", " ", name.strip().lower())
+    clean_name = sanitize_person_name_string(name)
+    clean = re.sub(r"\s+", " ", clean_name.strip().lower())
     if clean in INVALID_PERSON_NAME_PATTERNS:
         return True
     if any(term in clean for term in [
@@ -91,9 +104,9 @@ def is_invalid_person_name(name: str) -> bool:
         "land record", "test data", "fictional document", "synthetic record"
     ]):
         return True
-    if not re.search(r"[a-zA-Z]", name):
+    if not re.search(r"[a-zA-Z]", clean_name):
         return True
-    if len(name) > 70:
+    if len(clean_name) > 70:
         return True
     return False
 
@@ -101,14 +114,17 @@ def is_invalid_person_name(name: str) -> bool:
 def normalize_person_name(val: str) -> str:
     """
     Normalizes a person's name for comparison.
-    Strips common honorifics (Mr., Mrs., Ms., Shri, Smt., Dr., etc.), collapses whitespace,
-    and removes punctuation while preserving actual name tokens.
+    Strips leading label prefixes ('Reference:', 'Full Name:'), common honorifics (Mr., Mrs., Ms., Shri, Smt., Dr., etc.),
+    collapses whitespace, and removes punctuation while preserving actual name tokens.
     """
-    if not val or is_invalid_person_name(val):
+    if not val:
         return ""
-    norm = val.strip().lower()
+    clean_val = sanitize_person_name_string(val)
+    if is_invalid_person_name(clean_val):
+        return ""
+    norm = clean_val.lower().strip()
     # Strip honorifics from start of name
-    norm = re.sub(r"^(?:mr|mrs|ms|miss|shri|shree|smt|dr|prof)\.?\s+", "", norm, flags=re.IGNORECASE)
+    norm = re.sub(HONORIFIC_PATTERN, "", norm, flags=re.IGNORECASE).strip()
     norm = re.sub(r"[^\w\s]", " ", norm)
     norm = re.sub(r"\s+", " ", norm).strip()
     return norm

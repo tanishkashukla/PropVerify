@@ -610,3 +610,57 @@ def test_existing_api_compatibility():
     assert len(v.matches) >= 2
 
 
+def test_reference_prefix_owner_name_matches_clean_owner_name():
+    """
+    Section D Test 1: 'Reference: Mrs. SHILPA SALGIA' matches 'Mrs. SHILPA SALGIA'.
+    """
+    v = compare_documents([
+        _result("id.pdf", "ID Document", owner_name="Reference: Mrs. SHILPA SALGIA"),
+        _result("sale.pdf", "Sale Deed", owner_name="Mrs. SHILPA SALGIA"),
+    ], required_documents=[])
+    matches = [m for m in v.matches if m.field == "owner_name"]
+    assert len(matches) == 1
+    assert not any(m.field == "owner_name" for m in v.mismatches)
+    assert matches[0].documents_compared["id.pdf"] == "Mrs. SHILPA SALGIA"
+
+
+def test_buyer_name_with_honorific_matches_clean_buyer_name():
+    """
+    Section D Test 2: 'Mr. Gaurav Ajay Kumar Kanoi' & 'Gaurav Ajay Kumar Kanoi' produce MATCH.
+    """
+    v = compare_documents([
+        _result("sale.pdf", "Sale Deed", buyer_name="Mr. Gaurav Ajay Kumar Kanoi"),
+        _result("index.pdf", "Index II", buyer_name="Gaurav Ajay Kumar Kanoi"),
+    ], required_documents=[])
+    matches = [m for m in v.matches if m.field == "buyer_name"]
+    assert len(matches) == 1
+    assert not any(m.field == "buyer_name" for m in v.mismatches)
+
+
+def test_seller_name_with_honorific_matches_clean_seller_name():
+    """
+    Section D Test 3: 'Mrs. SHILPA SALGIA' & 'SHILPA SALGIA' produce MATCH.
+    """
+    v = compare_documents([
+        _result("sale.pdf", "Sale Deed", seller_name="Mrs. SHILPA SALGIA"),
+        _result("index.pdf", "Index II", seller_name="SHILPA SALGIA"),
+    ], required_documents=[])
+    matches = [m for m in v.matches if m.field == "seller_name"]
+    assert len(matches) == 1
+    assert not any(m.field == "seller_name" for m in v.mismatches)
+
+
+def test_different_names_produce_mismatch():
+    """
+    Section D Test 4: Different names still produce MISMATCH.
+    """
+    v = compare_documents([
+        _result("sale.pdf", "Sale Deed", owner_name="Mrs. SHILPA SALGIA"),
+        _result("card.pdf", "Property Card", owner_name="Mr. RAJESH KUMAR"),
+    ], required_documents=[])
+    mismatches = [m for m in v.mismatches if m.field == "owner_name"]
+    assert len(mismatches) == 1
+    assert mismatches[0].severity == "HIGH"
+
+
+
